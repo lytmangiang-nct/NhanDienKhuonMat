@@ -117,6 +117,7 @@ export default function App() {
   const [verificationResult, setVerificationResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const webcamRef = useRef<Webcam>(null);
 
@@ -176,11 +177,20 @@ export default function App() {
 
   // --- Handlers ---
   const handleLogin = async () => {
+    setLoginError(null);
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed", error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setLoginError("Tên miền này chưa được cấp phép trong Firebase Console. Vui lòng xem hướng dẫn bên dưới.");
+      } else if (error.code === 'auth/popup-blocked') {
+        setLoginError("Trình duyệt đã chặn cửa sổ bật lên. Vui lòng cho phép bật lên.");
+      } else {
+        setLoginError(error.message || "Đăng nhập thất bại.");
+      }
     }
   };
 
@@ -279,6 +289,13 @@ export default function App() {
           <h1 className="text-2xl font-bold mb-2 tracking-tight">GATEPASS AI</h1>
           <p className="text-[#8E9299] text-sm mb-8">Hệ thống xác minh ra cổng thông minh</p>
           
+          {loginError && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-xs text-left flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <p>{loginError}</p>
+            </div>
+          )}
+
           <button 
             onClick={handleLogin}
             className="w-full bg-white text-black font-bold py-3 px-6 rounded-lg hover:bg-[#E6E6E6] transition-colors flex items-center justify-center gap-2"
