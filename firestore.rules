@@ -6,14 +6,18 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
-    
+
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (getUserData().role == 'admin' ||
          (request.auth.token.email == "lytm.angiang@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isStudent() {
+      return isAuthenticated() && getUserData().role == 'student';
     }
 
     // GatePass validation
@@ -21,19 +25,35 @@ service cloud.firestore {
       return data.fullName is string && data.fullName.size() > 0 && data.fullName.size() < 100 &&
              data.reason is string && data.reason.size() > 0 && data.reason.size() < 500 &&
              data.exitTime is string &&
-             data.uid == request.auth.uid;
+             data.uid == request.auth.uid &&
+             data.status == 'pending'; // Students must start with pending
     }
 
     match /gatepasses/{passId} {
+      // Students can read their own, Admins can read all
       allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidGatePass(request.resource.data);
-      allow update: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+      
+      // Only students can create passes
+      allow create: if isAuthenticated() && isValidGatePass(request.resource.data) && (getUserData().role == 'student' || !('role' in getUserData()));
+      
+      // Only admins can update status. Students cannot update anything once submitted.
+      allow update: if isAdmin() && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+                    request.resource.data.status in ['approved', 'rejected', 'pending'];
+      
       allow delete: if isAdmin();
     }
 
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isOwner(userId) || isAdmin();
+      // Users can create their own profile as 'student' by default. 
+      // Only admins can change roles to 'admin'.
+      allow create: if isOwner(userId) && request.resource.data.role == 'student';
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
   }
 }
