@@ -116,6 +116,7 @@ export default function App() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const webcamRef = useRef<Webcam>(null);
 
@@ -127,6 +128,18 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Check for camera permissions on mount or when creating
+  useEffect(() => {
+    if (isCreating) {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(() => setCameraError(null))
+        .catch((err) => {
+          console.error("Camera access denied:", err);
+          setCameraError("Vui lòng cấp quyền truy cập Camera để tiếp tục.");
+        });
+    }
+  }, [isCreating]);
 
   useEffect(() => {
     if (!user) return;
@@ -318,12 +331,12 @@ export default function App() {
               <button 
                 onClick={() => setIsCreating(!isCreating)}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all",
+                  "flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg active:scale-95",
                   isCreating ? "bg-[#1c1d21] text-white" : "bg-[#00FF00] text-black hover:bg-[#00CC00]"
                 )}
               >
-                {isCreating ? <XCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {isCreating ? "HỦY BỎ" : "TẠO PHIẾU MỚI"}
+                {isCreating ? <XCircle className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                {isCreating ? "ĐÓNG" : "TẠO PHIẾU"}
               </button>
             </div>
 
@@ -397,7 +410,24 @@ export default function App() {
                     <div className="space-y-3">
                       <label className="text-[10px] text-[#8E9299] uppercase tracking-widest block">Xác minh khuôn mặt</label>
                       <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-[#2d2e33]">
-                        {!capturedImage ? (
+                        {cameraError ? (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-[#1c1d21]">
+                            <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
+                            <p className="text-xs font-bold text-red-500 mb-4">{cameraError}</p>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setCameraError(null);
+                                navigator.mediaDevices.getUserMedia({ video: true })
+                                  .then(() => setCameraError(null))
+                                  .catch(() => setCameraError("Vui lòng cấp quyền Camera trong cài đặt trình duyệt."));
+                              }}
+                              className="px-4 py-2 bg-white text-black text-[10px] font-bold rounded-lg uppercase tracking-widest"
+                            >
+                              Thử lại
+                            </button>
+                          </div>
+                        ) : !capturedImage ? (
                           <>
                             <Webcam
                               audio={false}
@@ -405,14 +435,15 @@ export default function App() {
                               screenshotFormat="image/jpeg"
                               className="w-full h-full object-cover"
                               videoConstraints={{ facingMode: "user" }}
+                              onUserMediaError={() => setCameraError("Không tìm thấy Camera hoặc quyền bị từ chối.")}
                             />
                             <div className="absolute inset-0 border-2 border-dashed border-[#00FF00]/30 pointer-events-none" />
                             <button
                               type="button"
                               onClick={capture}
-                              className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#00FF00] text-black p-3 rounded-full hover:scale-110 transition-transform shadow-lg"
+                              className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#00FF00] text-black p-4 rounded-full hover:scale-110 active:scale-90 transition-transform shadow-lg z-10"
                             >
-                              <Camera className="w-6 h-6" />
+                              <Camera className="w-8 h-8" />
                             </button>
                           </>
                         ) : (
