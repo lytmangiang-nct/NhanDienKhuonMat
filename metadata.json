@@ -1,0 +1,7 @@
+{
+  "name": "GatePass AI",
+  "description": "Hệ thống tạo phiếu ra cổng tích hợp xác minh khuôn mặt bằng AI.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

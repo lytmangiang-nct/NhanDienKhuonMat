@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "GatePass": {
+      "title": "Gate Pass",
+      "description": "A request to exit the gate.",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "description": "Full name of the person." },
+        "department": { "type": "string", "description": "Department of the person." },
+        "reason": { "type": "string", "description": "Reason for leaving." },
+        "exitTime": { "type": "string", "format": "date-time", "description": "Requested exit time." },
+        "photoUrl": { "type": "string", "description": "Base64 or URL of the captured photo." },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Current status of the pass." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Time the pass was created." },
+        "uid": { "type": "string", "description": "User ID of the creator." }
+      },
+      "required": ["fullName", "reason", "exitTime", "uid"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/gatepasses/{passId}": {
+      "schema": "GatePass",
+      "description": "Collection of gate passes."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile data."
+    }
+  }
+}

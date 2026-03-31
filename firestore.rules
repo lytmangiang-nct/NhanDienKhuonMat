@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "lytm.angiang@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // GatePass validation
+    function isValidGatePass(data) {
+      return data.fullName is string && data.fullName.size() > 0 && data.fullName.size() < 100 &&
+             data.reason is string && data.reason.size() > 0 && data.reason.size() < 500 &&
+             data.exitTime is string &&
+             data.uid == request.auth.uid;
+    }
+
+    match /gatepasses/{passId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidGatePass(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+  }
+}
