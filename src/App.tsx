@@ -25,7 +25,8 @@ import {
   signOut, 
   User,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  sendEmailVerification
 } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { GoogleGenAI } from "@google/genai";
@@ -69,6 +70,9 @@ interface UserProfile {
   email: string;
   role: 'admin' | 'student';
   displayName: string;
+  className?: string;
+  phoneNumber?: string;
+  isVerified?: boolean;
 }
 
 enum OperationType {
@@ -198,30 +202,64 @@ function GatePassApp() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registerData, setRegisterData] = useState({
+    fullName: '',
+    className: '',
+    phoneNumber: '',
+    email: '',
+    password: ''
+  });
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [registerSuccess, setRegisterSuccess] = useState(false);
 
   const webcamRef = useRef<Webcam>(null);
+
+  // Pre-fill form data from user profile
+  useEffect(() => {
+    if (userProfile && userProfile.role === 'student') {
+      setFormData(prev => ({
+        ...prev,
+        fullName: userProfile.displayName || '',
+        department: userProfile.className || ''
+      }));
+    }
+  }, [userProfile]);
 
   // --- Auth & Initial Load ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         // Fetch or create user profile
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        
         if (userDoc.exists()) {
           setUserProfile(userDoc.data() as UserProfile);
         } else {
-          // Default to student if not exists
+          // If profile doesn't exist (e.g. Google login for first time)
           const newProfile: UserProfile = {
             uid: currentUser.uid,
             email: currentUser.email || '',
             role: 'student',
-            displayName: currentUser.displayName || 'Học sinh'
+            displayName: currentUser.displayName || 'Học sinh',
+            isVerified: false
           };
-          await setDoc(doc(db, 'users', currentUser.uid), newProfile);
-          setUserProfile(newProfile);
+          try {
+            await setDoc(userDocRef, newProfile);
+            setUserProfile(newProfile);
+          } catch (err) {
+            console.error("Failed to create profile:", err);
+          }
         }
       } else {
         setUserProfile(null);
+        setFormData({
+          fullName: '',
+          department: '',
+          reason: '',
+          exitTime: new Date().toISOString().slice(0, 16)
+        });
       }
       setUser(currentUser);
       setLoading(false);
@@ -295,6 +333,51 @@ function GatePassApp() {
   };
 
   const handleLogout = () => signOut(auth);
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    setRegisterLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, registerData.email, registerData.password);
+      const newUser = userCredential.user;
+
+      // Create profile
+      const newProfile: UserProfile = {
+        uid: newUser.uid,
+        email: registerData.email,
+        role: 'student',
+        displayName: registerData.fullName,
+        className: registerData.className,
+        phoneNumber: registerData.phoneNumber,
+        isVerified: false
+      };
+
+      await setDoc(doc(db, 'users', newUser.uid), newProfile);
+      setUserProfile(newProfile);
+      
+      // Send verification email
+      await sendEmailVerification(newUser);
+      setRegisterSuccess(true);
+      
+      setTimeout(() => {
+        setIsRegistering(false);
+        setRegisterSuccess(false);
+      }, 3000);
+
+    } catch (error: any) {
+      console.error("Registration failed", error);
+      if (error.code === 'auth/email-already-in-use') {
+        setLoginError("Email này đã được sử dụng.");
+      } else if (error.code === 'auth/weak-password') {
+        setLoginError("Mật khẩu quá yếu (tối thiểu 6 ký tự).");
+      } else {
+        setLoginError("Đăng ký thất bại. Vui lòng thử lại.");
+      }
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
 
   const capture = useCallback(() => {
     const imageSrc = webcamRef.current?.getScreenshot();
@@ -412,7 +495,49 @@ function GatePassApp() {
             </div>
           )}
 
-          {loginMode === 'student' ? (
+          {registerSuccess && (
+            <div className="mb-6 p-3 bg-[#00FF00]/10 border border-[#00FF00]/50 rounded-lg text-[#00FF00] text-[10px] flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" /> Đăng ký thành công! Vui lòng kiểm tra email để xác minh tài khoản.
+            </div>
+          )}
+
+          {isRegistering ? (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="space-y-3">
+                <input 
+                  required type="text" placeholder="Họ và tên" 
+                  className="w-full bg-[#0a0a0a] border border-[#1c1d21] rounded-xl px-4 py-3 text-sm focus:border-[#00FF00] outline-none"
+                  value={registerData.fullName} onChange={(e) => setRegisterData({...registerData, fullName: e.target.value})}
+                />
+                <input 
+                  required type="text" placeholder="Lớp (Ví dụ: 12A1)" 
+                  className="w-full bg-[#0a0a0a] border border-[#1c1d21] rounded-xl px-4 py-3 text-sm focus:border-[#00FF00] outline-none"
+                  value={registerData.className} onChange={(e) => setRegisterData({...registerData, className: e.target.value})}
+                />
+                <input 
+                  required type="tel" placeholder="Số điện thoại" 
+                  className="w-full bg-[#0a0a0a] border border-[#1c1d21] rounded-xl px-4 py-3 text-sm focus:border-[#00FF00] outline-none"
+                  value={registerData.phoneNumber} onChange={(e) => setRegisterData({...registerData, phoneNumber: e.target.value})}
+                />
+                <input 
+                  required type="email" placeholder="Email" 
+                  className="w-full bg-[#0a0a0a] border border-[#1c1d21] rounded-xl px-4 py-3 text-sm focus:border-[#00FF00] outline-none"
+                  value={registerData.email} onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
+                />
+                <input 
+                  required type="password" placeholder="Mật khẩu (tối thiểu 6 ký tự)" 
+                  className="w-full bg-[#0a0a0a] border border-[#1c1d21] rounded-xl px-4 py-3 text-sm focus:border-[#00FF00] outline-none"
+                  value={registerData.password} onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
+                />
+              </div>
+              <button disabled={registerLoading} className="w-full bg-[#00FF00] text-black font-bold py-3 rounded-xl hover:bg-[#00CC00] transition-all active:scale-95 flex items-center justify-center gap-2">
+                {registerLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "ĐĂNG KÝ HỌC SINH"}
+              </button>
+              <button type="button" onClick={() => setIsRegistering(false)} className="w-full text-[10px] text-[#8E9299] hover:text-white transition-colors uppercase tracking-widest">
+                Đã có tài khoản? Đăng nhập
+              </button>
+            </form>
+          ) : loginMode === 'student' ? (
             <div className="space-y-4">
               <button 
                 onClick={handleGoogleLogin}
@@ -446,6 +571,9 @@ function GatePassApp() {
                   ĐĂNG NHẬP
                 </button>
               </form>
+              <button onClick={() => setIsRegistering(true)} className="w-full text-[10px] text-[#8E9299] hover:text-white transition-colors uppercase tracking-widest">
+                Chưa có tài khoản? Đăng ký ngay
+              </button>
             </div>
           ) : (
             <form onSubmit={handleEmailLogin} className="space-y-4">
@@ -515,6 +643,21 @@ function GatePassApp() {
                 </button>
               )}
             </div>
+
+            {user && !user.emailVerified && userProfile?.role === 'student' && (
+              <div className="p-4 bg-yellow-500/10 border border-yellow-500/50 rounded-2xl text-yellow-500 text-xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <p>Tài khoản chưa xác minh. Vui lòng kiểm tra email để kích hoạt đầy đủ tính năng.</p>
+                </div>
+                <button 
+                  onClick={() => sendEmailVerification(user).then(() => alert("Đã gửi lại email xác minh!"))}
+                  className="px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 rounded-lg font-bold transition-colors whitespace-nowrap"
+                >
+                  GỬI LẠI
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-4">
               <AnimatePresence mode="popLayout">
