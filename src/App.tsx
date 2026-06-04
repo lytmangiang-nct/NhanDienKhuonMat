@@ -47,7 +47,10 @@ import {
   GraduationCap,
   LayoutDashboard,
   Check,
-  X
+  X,
+  Eye,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -182,9 +185,11 @@ export default function App() {
 function GatePassApp() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isMockMode, setIsMockMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [passes, setPasses] = useState<GatePass[]>([]);
+  const [selectedPass, setSelectedPass] = useState<GatePass | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [loginMode, setLoginMode] = useState<'student' | 'admin'>('student');
   const [email, setEmail] = useState('');
@@ -252,16 +257,21 @@ function GatePassApp() {
             console.error("Failed to create profile:", err);
           }
         }
+        setUser(currentUser);
       } else {
-        setUserProfile(null);
-        setFormData({
-          fullName: '',
-          department: '',
-          reason: '',
-          exitTime: new Date().toISOString().slice(0, 16)
+        setUser(prevUser => {
+          if (prevUser && prevUser.uid.startsWith('mock-')) {
+            return prevUser; // keep mock session
+          }
+          setUserProfile(prevProfile => {
+            if (prevProfile && prevProfile.uid.startsWith('mock-')) {
+              return prevProfile;
+            }
+            return null;
+          });
+          return null;
         });
       }
-      setUser(currentUser);
       setLoading(false);
     });
     return () => unsubscribe();
@@ -280,6 +290,44 @@ function GatePassApp() {
   }, [isCreating]);
 
   useEffect(() => {
+    if (isMockMode) {
+      const loadLocalPasses = () => {
+        const localPasses = localStorage.getItem('mock_gatepasses');
+        if (localPasses) {
+          setPasses(JSON.parse(localPasses));
+        } else {
+          const initialMockPasses: GatePass[] = [
+            {
+              id: 'mock-1',
+              fullName: 'Nguyễn Văn Nam',
+              department: '12A1',
+              reason: 'Đi khám răng định kỳ theo hẹn của bác sĩ',
+              exitTime: new Date(Date.now() + 3600000).toISOString(),
+              photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150',
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              uid: 'mock-student-id'
+            },
+            {
+              id: 'mock-2',
+              fullName: 'Trần Thị Thuỷ',
+              department: '11B3',
+              reason: 'Họp gia đình khẩn cấp, phụ huynh đến đón',
+              exitTime: new Date(Date.now() + 7200000).toISOString(),
+              photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150',
+              status: 'approved',
+              createdAt: new Date(Date.now() - 100000000).toISOString(),
+              uid: 'student-2'
+            }
+          ];
+          localStorage.setItem('mock_gatepasses', JSON.stringify(initialMockPasses));
+          setPasses(initialMockPasses);
+        }
+      };
+      loadLocalPasses();
+      return;
+    }
+
     if (!user || !userProfile) return;
 
     let q;
@@ -306,7 +354,7 @@ function GatePassApp() {
     });
 
     return () => unsubscribe();
-  }, [user, userProfile]);
+  }, [user, userProfile, isMockMode]);
 
   // --- Handlers ---
   const handleGoogleLogin = async () => {
@@ -321,6 +369,45 @@ function GatePassApp() {
     }
   };
 
+  const handleBypassStudent = () => {
+    setIsMockMode(true);
+    const mockUser = {
+      uid: 'mock-student-id',
+      email: 'student.bypass@test.com',
+      displayName: 'Học sinh Thử nghiệm',
+      emailVerified: true
+    } as any;
+    const mockProfile: UserProfile = {
+      uid: 'mock-student-id',
+      email: 'student.bypass@test.com',
+      role: 'student',
+      displayName: 'Học sinh Thử nghiệm',
+      className: '12A1',
+      phoneNumber: '0987654321',
+      isVerified: true
+    };
+    setUser(mockUser);
+    setUserProfile(mockProfile);
+  };
+
+  const handleBypassAdmin = () => {
+    setIsMockMode(true);
+    const mockUser = {
+      uid: 'mock-admin-id',
+      email: 'lytm.angiang@gmail.com',
+      displayName: 'Quản trị Thử nghiệm',
+      emailVerified: true
+    } as any;
+    const mockProfile: UserProfile = {
+      uid: 'mock-admin-id',
+      email: 'lytm.angiang@gmail.com',
+      role: 'admin',
+      displayName: 'Quản trị Thử nghiệm'
+    };
+    setUser(mockUser);
+    setUserProfile(mockProfile);
+  };
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
@@ -332,7 +419,21 @@ function GatePassApp() {
     }
   };
 
-  const handleLogout = () => signOut(auth);
+  const handleLogout = () => {
+    if (isMockMode) {
+      setIsMockMode(false);
+      setUser(null);
+      setUserProfile(null);
+      setFormData({
+        fullName: '',
+        department: '',
+        reason: '',
+        exitTime: new Date().toISOString().slice(0, 16)
+      });
+    } else {
+      signOut(auth);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -416,6 +517,29 @@ function GatePassApp() {
     e.preventDefault();
     if (!user || !capturedImage || !verificationResult?.success) return;
     setIsSubmitting(true);
+    
+    if (isMockMode) {
+      const newPass: GatePass = {
+        id: 'mock-' + Date.now(),
+        fullName: formData.fullName,
+        department: formData.department,
+        reason: formData.reason,
+        exitTime: formData.exitTime,
+        photoUrl: capturedImage,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        uid: user.uid
+      };
+      const updated = [newPass, ...passes];
+      setPasses(updated);
+      localStorage.setItem('mock_gatepasses', JSON.stringify(updated));
+      setIsCreating(false);
+      setCapturedImage(null);
+      setVerificationResult(null);
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'gatepasses'), {
         ...formData,
@@ -436,6 +560,14 @@ function GatePassApp() {
 
   const handleUpdateStatus = async (passId: string, status: 'approved' | 'rejected') => {
     if (userProfile?.role !== 'admin') return;
+
+    if (isMockMode) {
+      const updated = passes.map(p => p.id === passId ? { ...p, status } : p);
+      setPasses(updated);
+      localStorage.setItem('mock_gatepasses', JSON.stringify(updated));
+      return;
+    }
+
     try {
       await updateDoc(doc(db, 'gatepasses', passId), { status });
     } catch (error) {
@@ -599,6 +731,35 @@ function GatePassApp() {
               <p className="text-[10px] text-center text-[#8E9299] italic">Tài khoản quản trị do hệ thống cung cấp</p>
             </form>
           )}
+
+          {/* Development Bypass Options */}
+          <div className="relative py-4 mt-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-[#1c1d21]"></div>
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase">
+              <span className="bg-[#151619] px-2 text-[#8E9299] font-bold tracking-wider">
+                ⚡ THỬ NGHIỆM NHANH (MOCK BYPASS)
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-1">
+            <button
+              onClick={handleBypassStudent}
+              className="flex bg-[#1c1d21] border border-[#1c1d21] hover:border-[#00FF00]/40 text-[#8E9299] hover:text-white py-3 rounded-xl hover:bg-[#1a2d1d]/30 transition-all active:scale-95 text-[11px] font-bold items-center justify-center gap-2"
+            >
+              <GraduationCap className="w-4 h-4 text-[#00FF00]" />
+              VÀO HỌC SINH
+            </button>
+            <button
+              onClick={handleBypassAdmin}
+              className="flex bg-[#1c1d21] border border-[#1c1d21] hover:border-[#00FF00]/40 text-[#8E9299] hover:text-white py-3 rounded-xl hover:bg-[#1a2d1d]/30 transition-all active:scale-95 text-[11px] font-bold items-center justify-center gap-2"
+            >
+              <ShieldCheck className="w-4 h-4 text-[#00FF00]" />
+              VÀO ADMIN
+            </button>
+          </div>
         </motion.div>
       </div>
     );
@@ -612,6 +773,11 @@ function GatePassApp() {
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-[#00FF00] rounded flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-black" /></div>
             <span className="font-bold tracking-widest text-sm">GATEPASS.SYS</span>
+            {isMockMode && (
+              <span className="bg-[#00FF00]/15 text-[#00FF00] border border-[#00FF00]/30 text-[9px] px-2 py-0.5 rounded-full font-bold tracking-wide uppercase">
+                ⚡ BYPASS MODE
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-end">
@@ -667,14 +833,18 @@ function GatePassApp() {
                     layout
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-[#151619] border border-[#1c1d21] rounded-2xl p-5 flex flex-col sm:flex-row gap-5 hover:border-[#2d2e33] transition-all"
+                    onClick={() => setSelectedPass(pass)}
+                    className="bg-[#151619] border border-[#1c1d21] rounded-2xl p-5 flex flex-col sm:flex-row gap-5 hover:border-[#00FF00]/40 transition-all cursor-pointer group relative overflow-hidden"
                   >
-                    <div className="w-24 h-24 rounded-xl overflow-hidden bg-[#0a0a0a] flex-shrink-0 border border-[#1c1d21]">
-                      <img src={pass.photoUrl} alt="Face" className="w-full h-full object-cover" />
+                    <div className="w-24 h-24 rounded-xl overflow-hidden bg-[#0a0a0a] flex-shrink-0 border border-[#1c1d21] relative">
+                      <img src={pass.photoUrl} alt="Face" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Eye className="w-5 h-5 text-[#00FF00]" />
+                      </div>
                     </div>
                     <div className="flex-grow space-y-2">
                       <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-base">{pass.fullName}</h3>
+                        <h3 className="font-bold text-base group-hover:text-[#00FF00] transition-colors">{pass.fullName}</h3>
                         <span className={cn(
                           "text-[10px] px-3 py-1 rounded-full uppercase font-bold",
                           pass.status === 'approved' ? "bg-[#00FF00]/10 text-[#00FF00]" :
@@ -690,21 +860,31 @@ function GatePassApp() {
                       </div>
                       
                       {userProfile?.role === 'admin' && pass.status === 'pending' && (
-                        <div className="flex gap-2 pt-3">
+                        <div className="flex gap-2 pt-3" onClick={(e) => e.stopPropagation()}>
                           <button 
-                            onClick={() => handleUpdateStatus(pass.id!, 'approved')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateStatus(pass.id!, 'approved');
+                            }}
                             className="flex-1 bg-[#00FF00]/10 text-[#00FF00] hover:bg-[#00FF00] hover:text-black py-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1"
                           >
                             <Check className="w-3 h-3" /> DUYỆT
                           </button>
                           <button 
-                            onClick={() => handleUpdateStatus(pass.id!, 'rejected')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateStatus(pass.id!, 'rejected');
+                            }}
                             className="flex-1 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white py-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1"
                           >
                             <X className="w-3 h-3" /> TỪ CHỐI
                           </button>
                         </div>
                       )}
+
+                      <div className="text-[9px] text-[#8E9299] group-hover:text-[#00FF00] font-bold text-right transition-colors pt-1">
+                        Chi tiết đơn →
+                      </div>
                     </div>
                   </motion.div>
                 ))}
@@ -775,6 +955,134 @@ function GatePassApp() {
           </div>
         </div>
       </main>
+
+      {/* Selected Pass Details & Image Lightbox Modal */}
+      <AnimatePresence>
+        {selectedPass && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedPass(null)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+            
+            {/* Modal Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-[#151619] border border-[#1c1d21] rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row z-10"
+            >
+              <button 
+                onClick={() => setSelectedPass(null)}
+                className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-[#8E9299] hover:text-white border border-[#1c1d21] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Photo View Box */}
+              <div className="w-full md:w-1/2 bg-black flex items-center justify-center relative aspect-square md:aspect-auto">
+                <img 
+                  src={selectedPass.photoUrl} 
+                  alt="Face" 
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute bottom-4 left-4">
+                  <span className="bg-black/80 backdrop-blur-md text-[9px] text-[#00FF00] border border-[#00FF00]/30 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+                    Ảnh đăng ký thiết bị
+                  </span>
+                </div>
+              </div>
+
+              {/* Details Pane */}
+              <div className="p-6 md:p-8 w-full md:w-1/2 flex flex-col justify-between space-y-6">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-[9px] text-[#8E9299] font-bold uppercase tracking-widest block">
+                      Thông tin chi tiết
+                    </span>
+                    <span className={cn(
+                      "text-[10px] px-3 py-1 rounded-full uppercase font-bold",
+                      selectedPass.status === 'approved' ? "bg-[#00FF00]/10 text-[#00FF00]" :
+                      selectedPass.status === 'rejected' ? "bg-red-500/10 text-red-500" : "bg-yellow-500/10 text-yellow-500"
+                    )}>
+                      {selectedPass.status}
+                    </span>
+                  </div>
+
+                  <h2 className="text-xl font-bold mb-4 text-[#00FF00]">{selectedPass.fullName}</h2>
+
+                  <div className="space-y-4 text-xs">
+                    <div className="flex justify-between border-b border-[#1c1d21] pb-2">
+                      <span className="text-[#8E9299]">Bộ phận / Lớp:</span>
+                      <span className="font-bold text-white">{selectedPass.department}</span>
+                    </div>
+
+                    <div className="flex justify-between border-b border-[#1c1d21] pb-2">
+                      <span className="text-[#8E9299]">Giờ ra mong muốn:</span>
+                      <div className="flex items-center gap-1.5 font-bold text-white">
+                        <Clock className="w-3.5 h-3.5 text-[#00FF00]" />
+                        <span>{new Date(selectedPass.exitTime).toLocaleString('vi-VN')}</span>
+                      </div>
+                    </div>
+
+                    <div className="border-b border-[#1c1d21] pb-2 space-y-1">
+                      <span className="text-[#8E9299]">Lý do xin ra:</span>
+                      <p className="text-white bg-[#0a0a0a] p-3 rounded-xl border border-[#1c1d21] text-xs leading-relaxed max-h-[100px] overflow-y-auto">
+                        {selectedPass.reason}
+                      </p>
+                    </div>
+
+                    {selectedPass.createdAt && (
+                      <div className="flex justify-between border-b border-[#1c1d21] pb-2">
+                        <span className="text-[#8E9299]">Thời điểm tạo:</span>
+                        <div className="flex items-center gap-1.5 text-white">
+                          <Calendar className="w-3.5 h-3.5 text-[#00FF00]" />
+                          <span>
+                            {typeof selectedPass.createdAt === 'string' 
+                              ? new Date(selectedPass.createdAt).toLocaleString('vi-VN')
+                              : selectedPass.createdAt?.seconds 
+                                ? new Date(selectedPass.createdAt.seconds * 1000).toLocaleString('vi-VN')
+                                : "Đang xử lý..."
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Approve/Reject Inside Modal if admin and pending */}
+                {userProfile?.role === 'admin' && selectedPass.status === 'pending' && (
+                  <div className="flex gap-3 pt-4">
+                    <button 
+                      onClick={() => {
+                        handleUpdateStatus(selectedPass.id!, 'approved');
+                        setSelectedPass(prev => prev ? { ...prev, status: 'approved' } : null);
+                      }}
+                      className="flex-1 bg-[#00FF00] text-black hover:bg-[#00CC00] py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
+                    >
+                      <Check className="w-4 h-4" /> DUYỆT
+                    </button>
+                    <button 
+                      onClick={() => {
+                        handleUpdateStatus(selectedPass.id!, 'rejected');
+                        setSelectedPass(prev => prev ? { ...prev, status: 'rejected' } : null);
+                      }}
+                      className="flex-1 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white py-3 rounded-xl text-xs font-bold transition-all border border-red-500/30 flex items-center justify-center gap-2"
+                    >
+                      <X className="w-4 h-4" /> TỪ CHỐI
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
